@@ -62,6 +62,7 @@ class ReactAgent {
 
   async run(prompt, context = {}) {
     const tools = await this.getAvailableTools();
+
     const messages = [
       {
         role: "system",
@@ -102,6 +103,7 @@ class ReactAgent {
           for (const toolCall of message.tool_calls) {
             toolCalls.push(toolCall);
             const result = await this.executeTool(toolCall);
+
             messages.push({
               role: "tool",
               tool_call_id: toolCall.id,

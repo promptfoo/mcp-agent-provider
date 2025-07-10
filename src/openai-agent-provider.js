@@ -68,8 +68,6 @@ class OpenAIAgentProvider {
         completion: Math.floor(result.messages.length * 40),
       };
 
-      console.log(result.toolCalls);
-
       return {
         output:
           result.response +
