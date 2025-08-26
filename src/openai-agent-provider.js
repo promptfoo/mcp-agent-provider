@@ -8,9 +8,18 @@ class OpenAIAgentProvider {
     this.apiKey = options.config?.apiKey || process.env.OPENAI_API_KEY;
     this.apiBaseUrl = options.config?.apiBaseUrl || "https://api.openai.com/v1";
     this.mcpServers = options.config?.mcpServers || [];
+    this.model = options.config?.model || "gpt-4o";
+    this.systemPrompt = options.config?.systemPrompt || `You are a helpful AI assistant with access to various tools. Use the ReAct pattern:
+1. Thought: Think about what you need to do
+2. Action: Choose and execute a tool if needed
+3. Observation: Observe the result
+4. Repeat until you have enough information to provide a final answer
+5. Always include all the tools you used in your response.
+6. Don't ask for confirmation before using a tool or doing something, just do it.`;
     this.mcpClients = [];
     this.agent = null;
-    this.initialized = false;
+    this.initializationState = 'not_initialized'; // 'not_initialized', 'initializing', 'initialized', 'failed'
+    this.initializationPromise = null;
   }
 
   id() {
@@ -18,30 +27,83 @@ class OpenAIAgentProvider {
   }
 
   async initialize() {
-    if (this.initialized) return;
-
-    if (!this.apiKey) {
-      throw new Error(
-        "OpenAI API key is required. Set OPENAI_API_KEY environment variable or provide it in config."
-      );
+    // If already initialized, return immediately
+    if (this.initializationState === 'initialized') {
+      return;
     }
-
-    for (const server of this.mcpServers) {
-      const client = new MCPClient(server.command, server.args || []);
-      try {
-        await client.connect();
-        this.mcpClients.push(client);
-        console.log(`Connected to MCP server: ${server.command}`);
-      } catch (error) {
-        console.error(
-          `Failed to connect to MCP server ${server.command}:`,
-          error
+    
+    // If currently initializing, wait for the existing initialization to complete
+    if (this.initializationState === 'initializing' && this.initializationPromise) {
+      return this.initializationPromise;
+    }
+    
+    // Start new initialization
+    this.initializationState = 'initializing';
+    
+    // Store the initialization promise to prevent concurrent attempts
+    this.initializationPromise = this._doInitialize();
+    
+    try {
+      await this.initializationPromise;
+    } finally {
+      // Clear the promise reference after completion (success or failure)
+      this.initializationPromise = null;
+    }
+  }
+  
+  async _doInitialize() {
+    try {
+      if (!this.apiKey) {
+        throw new Error(
+          "OpenAI API key is required. Set OPENAI_API_KEY environment variable or provide it in config."
         );
       }
-    }
 
-    this.agent = new ReactAgent(this.apiKey, this.apiBaseUrl, this.mcpClients);
-    this.initialized = true;
+      // Clear any existing clients before initializing (without changing state)
+      await this._cleanupClients();
+      
+      const connectedClients = [];
+      const failedServers = [];
+
+      for (const server of this.mcpServers) {
+        const client = new MCPClient(server);
+        try {
+          await client.connect();
+          connectedClients.push(client);
+        } catch (error) {
+          console.error(
+            `Failed to connect to MCP server ${server.command || server.path || server.url}:`,
+            error
+          );
+          failedServers.push(server);
+        }
+      }
+
+      // Only proceed if at least one server connected successfully
+      if (connectedClients.length === 0 && this.mcpServers.length > 0) {
+        this.initializationState = 'failed';
+        throw new Error("Failed to connect to any MCP servers");
+      }
+
+      // Store successfully connected clients
+      this.mcpClients = connectedClients;
+      
+      // Create the agent with connected clients
+      this.agent = new ReactAgent(this.apiKey, this.apiBaseUrl, this.mcpClients, this.model, this.systemPrompt);
+      
+      // Mark as initialized
+      this.initializationState = 'initialized';
+      
+      // Log warning if some servers failed
+      if (failedServers.length > 0) {
+        console.warn(`Warning: ${failedServers.length} MCP server(s) failed to connect`);
+      }
+    } catch (error) {
+      // Clean up any partial connections on failure
+      await this._cleanupClients();
+      this.initializationState = 'failed';
+      throw error;
+    }
   }
 
   async callApi(prompt, context, options) {
@@ -100,16 +162,24 @@ class OpenAIAgentProvider {
     }
   }
 
-  async cleanup() {
+  async _cleanupClients() {
+    // Internal cleanup that doesn't change initialization state
     for (const client of this.mcpClients) {
       try {
+        console.log("Disconnecting MCP client");
         await client.disconnect();
       } catch (error) {
         console.error("Error disconnecting MCP client:", error);
       }
     }
     this.mcpClients = [];
-    this.initialized = false;
+    this.agent = null;
+  }
+
+  async cleanup() {
+    await this._cleanupClients();
+    this.initializationState = 'not_initialized';
+    this.initializationPromise = null;
   }
 }
 

@@ -1,10 +1,18 @@
 const OpenAI = require("openai");
 
 class ReactAgent {
-  constructor(apiKey, apiBaseUrl, mcpClients = []) {
+  constructor(apiKey, apiBaseUrl, mcpClients = [], model = "gpt-4o", systemPrompt = null) {
     this.openai = new OpenAI({ apiKey, baseURL: apiBaseUrl });
     this.mcpClients = mcpClients;
     this.maxIterations = 10;
+    this.model = model;
+    this.systemPrompt = systemPrompt || `You are a helpful AI assistant with access to various tools. Use the ReAct pattern:
+1. Thought: Think about what you need to do
+2. Action: Choose and execute a tool if needed
+3. Observation: Observe the result
+4. Repeat until you have enough information to provide a final answer
+5. Always include all the tools you used in your response.
+6. Don't ask for confirmation before using a tool or doing something, just do it.`;
   }
 
   async getAvailableTools() {
@@ -66,14 +74,7 @@ class ReactAgent {
     const messages = [
       {
         role: "system",
-        content: `You are a helpful AI assistant with access to various tools. Use the ReAct pattern:
-1. Thought: Think about what you need to do
-2. Action: Choose and execute a tool if needed
-3. Observation: Observe the result
-4. Repeat until you have enough information to provide a final answer
-5. Always include all the tools you used in your response.
-6. Dont ask for confirmation before using a tool or doing something, just do it.
-`,
+        content: this.systemPrompt,
       },
       {
         role: "user",
@@ -88,7 +89,7 @@ class ReactAgent {
     while (iterations < this.maxIterations) {
       try {
         const completion = await this.openai.chat.completions.create({
-          model: "gpt-4o",
+          model: this.model,
           messages: messages,
           tools: tools.length > 0 ? tools : undefined,
           tool_choice: tools.length > 0 ? "auto" : undefined,
