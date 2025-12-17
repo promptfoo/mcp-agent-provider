@@ -8,7 +8,7 @@ The custom provider creates an OpenAI-based ReAct agent that can interact with M
 
 ## Prerequisites
 
-- Node.js (v14 or higher)
+- Node.js 20 or higher
 - npm or yarn
 - OpenAI API key
 - [Promptfoo](https://promptfoo.dev/) installed globally or locally

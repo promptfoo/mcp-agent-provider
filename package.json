@@ -1,14 +1,34 @@
 {
-  "name": "agent_custom_provider",
+  "name": "mcp-agent-provider",
   "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "description": "OpenAI agent provider for Promptfoo that integrates with MCP servers for red team testing",
+  "main": "src/openai-agent-provider.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/promptfoo/mcp-agent-provider.git"
+  },
+  "homepage": "https://github.com/promptfoo/mcp-agent-provider#readme",
+  "bugs": {
+    "url": "https://github.com/promptfoo/mcp-agent-provider/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "openai",
+    "promptfoo",
+    "red-team",
+    "agent",
+    "react-agent"
+  ],
+  "author": "Promptfoo",
+  "license": "MIT",
   "dependencies": {
     "@faker-js/faker": "^9.9.0",
     "@modelcontextprotocol/sdk": "^1.15.0",
