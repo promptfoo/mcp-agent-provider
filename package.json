@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "OpenAI agent provider for Promptfoo that integrates with MCP servers for red team testing",
   "main": "src/openai-agent-provider.js",
-  "type": "commonjs",
+  "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "check": "biome check .",
+    "fix": "biome check --write ."
   },
   "repository": {
     "type": "git",
@@ -32,7 +34,9 @@
   "dependencies": {
     "@faker-js/faker": "^10.0.0",
     "@modelcontextprotocol/sdk": "^1.15.0",
-    "dotenv": "^17.2.0",
     "openai": "^6.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.11"
   }
 }

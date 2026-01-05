@@ -140,10 +140,11 @@ purpose: |
 Once configured, run the red team tests using Promptfoo:
 
 ```bash
-# Make sure your OpenAI API key is exported
-export OPENAI_API_KEY=your-openai-api-key-here
+# Run with --env-file to load environment variables from .env
+node --env-file=.env node_modules/.bin/promptfoo redteam run
 
-# Run the red team tests
+# Or export the API key directly
+export OPENAI_API_KEY=your-openai-api-key-here
 promptfoo redteam run
 ```
 
