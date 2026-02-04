@@ -33,7 +33,7 @@
   "license": "MIT",
   "dependencies": {
     "@faker-js/faker": "^10.0.0",
-    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "openai": "^6.0.0"
   },
   "devDependencies": {
