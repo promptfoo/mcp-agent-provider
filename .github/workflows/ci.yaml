@@ -3,6 +3,7 @@ name: CI
 permissions:
   contents: read
   checks: read
+  statuses: read
 
 on:
   pull_request:
@@ -44,109 +45,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Wait for all PR checks to complete
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SELF_CHECK_NAME: CI Success
-        run: |
-          node <<'NODE'
-          const repo = process.env.GITHUB_REPOSITORY;
-          const sha = process.env.PR_HEAD_SHA;
-          const token = process.env.GITHUB_TOKEN;
-          const selfCheckName = process.env.SELF_CHECK_NAME;
-          const deadline = Date.now() + 5 * 60 * 1000;
-          let stableSuccessPolls = 0;
-          let previousNames = null;
-
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-          async function fetchCheckRuns() {
-            const response = await fetch(
-              `https://api.github.com/repos/${repo}/commits/${sha}/check-runs?per_page=100`,
-              {
-                headers: {
-                  Accept: 'application/vnd.github+json',
-                  Authorization: `Bearer ${token}`,
-                  'X-GitHub-Api-Version': '2022-11-28',
-                },
-              },
-            );
-
-            if (!response.ok) {
-              throw new Error(`GitHub API failed: ${response.status} ${response.statusText}`);
-            }
-
-            const payload = await response.json();
-
-            return (payload.check_runs ?? [])
-              .filter((run) => run.name !== selfCheckName)
-              .map((run) => ({
-                name: run.name,
-                status: run.status,
-                conclusion: run.conclusion,
-              }))
-              .sort((left, right) => left.name.localeCompare(right.name));
-          }
-
-          while (Date.now() < deadline) {
-            const runs = await fetchCheckRuns();
-
-            if (runs.length === 0) {
-              console.log('No other check runs found yet; waiting...');
-              stableSuccessPolls = 0;
-              await sleep(10000);
-              continue;
-            }
-
-            const pending = runs.filter((run) => run.status !== 'completed');
-            const failed = runs.filter(
-              (run) =>
-                run.status === 'completed' &&
-                !['success', 'neutral', 'skipped'].includes(run.conclusion ?? ''),
-            );
-
-            console.log(
-              `Observed checks: ${runs
-                .map((run) => `${run.name}:${run.status}/${run.conclusion}`)
-                .join(', ')}`,
-            );
-
-            if (failed.length > 0) {
-              console.error(
-                `Failing checks detected: ${failed
-                  .map((run) => `${run.name} (${run.conclusion})`)
-                  .join(', ')}`,
-              );
-              process.exit(1);
-            }
-
-            if (pending.length > 0) {
-              stableSuccessPolls = 0;
-              await sleep(10000);
-              continue;
-            }
-
-            const names = runs.map((run) => run.name);
-
-            if (JSON.stringify(names) === JSON.stringify(previousNames)) {
-              stableSuccessPolls += 1;
-            } else {
-              previousNames = names;
-              stableSuccessPolls = 1;
-            }
-
-            if (stableSuccessPolls >= 2) {
-              console.log(`All PR checks passed: ${names.join(', ')}`);
-              process.exit(0);
-            }
-
-            console.log(
-              'Checks are complete; waiting for one more stable poll in case more checks appear.',
-            );
-            await sleep(10000);
-          }
-
-          console.error('Timed out waiting for PR checks to complete.');
-          process.exit(1);
-          NODE
+        uses: promptfoo/.github/.github/actions/ci-success@915572ff640ae2826411cc494932669d596ff2a9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          timeout-seconds: 300
