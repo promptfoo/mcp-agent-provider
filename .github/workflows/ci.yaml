@@ -2,6 +2,7 @@ name: CI
 
 permissions:
   contents: read
+  checks: read
 
 on:
   pull_request:
@@ -42,11 +43,100 @@ jobs:
     if: always()
     timeout-minutes: 5
     steps:
-      - name: Check all jobs passed
+      - name: Wait for all PR checks to complete
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SELF_CHECK_NAME: CI Success
         run: |
-          if [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.biome.result }}" != "success" ]]; then
-            echo "One or more CI jobs failed"
-            exit 1
-          fi
-          echo "All CI jobs passed"
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["PR_HEAD_SHA"]
+          token = os.environ["GITHUB_TOKEN"]
+          self_check_name = os.environ["SELF_CHECK_NAME"]
+          deadline = time.time() + 300
+          stable_success_polls = 0
+          previous_names = None
+
+          def fetch_check_runs():
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/commits/{sha}/check-runs?per_page=100",
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  payload = json.load(response)
+
+              runs = []
+              for run in payload.get("check_runs", []):
+                  if run["name"] == self_check_name:
+                      continue
+
+                  runs.append(
+                      {
+                          "name": run["name"],
+                          "status": run["status"],
+                          "conclusion": run.get("conclusion"),
+                      }
+                  )
+
+              runs.sort(key=lambda run: run["name"])
+              return runs
+
+          while time.time() < deadline:
+              runs = fetch_check_runs()
+              if not runs:
+                  print("No other check runs found yet; waiting...")
+                  stable_success_polls = 0
+                  time.sleep(10)
+                  continue
+
+              pending = [run["name"] for run in runs if run["status"] != "completed"]
+              failed = [
+                  f'{run["name"]} ({run["conclusion"]})'
+                  for run in runs
+                  if run["status"] == "completed"
+                  and run["conclusion"] not in ("success", "neutral", "skipped")
+              ]
+
+              observed = ", ".join(
+                  f'{run["name"]}:{run["status"]}/{run["conclusion"]}' for run in runs
+              )
+              print(f"Observed checks: {observed}")
+
+              if failed:
+                  print(f"Failing checks detected: {', '.join(failed)}")
+                  sys.exit(1)
+
+              if pending:
+                  stable_success_polls = 0
+                  time.sleep(10)
+                  continue
+
+              names = [run["name"] for run in runs]
+              if names == previous_names:
+                  stable_success_polls += 1
+              else:
+                  previous_names = names
+                  stable_success_polls = 1
+
+              if stable_success_polls >= 2:
+                  print(f"All PR checks passed: {', '.join(names)}")
+                  sys.exit(0)
+
+              print("Checks are complete; waiting for one more stable poll in case more checks appear.")
+              time.sleep(10)
+
+          print("Timed out waiting for PR checks to complete.")
+          sys.exit(1)
+          PY
