@@ -50,93 +50,103 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SELF_CHECK_NAME: CI Success
         run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-          import time
-          import urllib.request
+          node <<'NODE'
+          const repo = process.env.GITHUB_REPOSITORY;
+          const sha = process.env.PR_HEAD_SHA;
+          const token = process.env.GITHUB_TOKEN;
+          const selfCheckName = process.env.SELF_CHECK_NAME;
+          const deadline = Date.now() + 5 * 60 * 1000;
+          let stableSuccessPolls = 0;
+          let previousNames = null;
 
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["PR_HEAD_SHA"]
-          token = os.environ["GITHUB_TOKEN"]
-          self_check_name = os.environ["SELF_CHECK_NAME"]
-          deadline = time.time() + 300
-          stable_success_polls = 0
-          previous_names = None
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-          def fetch_check_runs():
-              request = urllib.request.Request(
-                  f"https://api.github.com/repos/{repo}/commits/{sha}/check-runs?per_page=100",
-                  headers={
-                      "Accept": "application/vnd.github+json",
-                      "Authorization": f"Bearer {token}",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                  },
-              )
-              with urllib.request.urlopen(request) as response:
-                  payload = json.load(response)
+          async function fetchCheckRuns() {
+            const response = await fetch(
+              `https://api.github.com/repos/${repo}/commits/${sha}/check-runs?per_page=100`,
+              {
+                headers: {
+                  Accept: 'application/vnd.github+json',
+                  Authorization: `Bearer ${token}`,
+                  'X-GitHub-Api-Version': '2022-11-28',
+                },
+              },
+            );
 
-              runs = []
-              for run in payload.get("check_runs", []):
-                  if run["name"] == self_check_name:
-                      continue
+            if (!response.ok) {
+              throw new Error(`GitHub API failed: ${response.status} ${response.statusText}`);
+            }
 
-                  runs.append(
-                      {
-                          "name": run["name"],
-                          "status": run["status"],
-                          "conclusion": run.get("conclusion"),
-                      }
-                  )
+            const payload = await response.json();
 
-              runs.sort(key=lambda run: run["name"])
-              return runs
+            return (payload.check_runs ?? [])
+              .filter((run) => run.name !== selfCheckName)
+              .map((run) => ({
+                name: run.name,
+                status: run.status,
+                conclusion: run.conclusion,
+              }))
+              .sort((left, right) => left.name.localeCompare(right.name));
+          }
 
-          while time.time() < deadline:
-              runs = fetch_check_runs()
-              if not runs:
-                  print("No other check runs found yet; waiting...")
-                  stable_success_polls = 0
-                  time.sleep(10)
-                  continue
+          while (Date.now() < deadline) {
+            const runs = await fetchCheckRuns();
 
-              pending = [run["name"] for run in runs if run["status"] != "completed"]
-              failed = [
-                  f'{run["name"]} ({run["conclusion"]})'
-                  for run in runs
-                  if run["status"] == "completed"
-                  and run["conclusion"] not in ("success", "neutral", "skipped")
-              ]
+            if (runs.length === 0) {
+              console.log('No other check runs found yet; waiting...');
+              stableSuccessPolls = 0;
+              await sleep(10000);
+              continue;
+            }
 
-              observed = ", ".join(
-                  f'{run["name"]}:{run["status"]}/{run["conclusion"]}' for run in runs
-              )
-              print(f"Observed checks: {observed}")
+            const pending = runs.filter((run) => run.status !== 'completed');
+            const failed = runs.filter(
+              (run) =>
+                run.status === 'completed' &&
+                !['success', 'neutral', 'skipped'].includes(run.conclusion ?? ''),
+            );
 
-              if failed:
-                  print(f"Failing checks detected: {', '.join(failed)}")
-                  sys.exit(1)
+            console.log(
+              `Observed checks: ${runs
+                .map((run) => `${run.name}:${run.status}/${run.conclusion}`)
+                .join(', ')}`,
+            );
 
-              if pending:
-                  stable_success_polls = 0
-                  time.sleep(10)
-                  continue
+            if (failed.length > 0) {
+              console.error(
+                `Failing checks detected: ${failed
+                  .map((run) => `${run.name} (${run.conclusion})`)
+                  .join(', ')}`,
+              );
+              process.exit(1);
+            }
 
-              names = [run["name"] for run in runs]
-              if names == previous_names:
-                  stable_success_polls += 1
-              else:
-                  previous_names = names
-                  stable_success_polls = 1
+            if (pending.length > 0) {
+              stableSuccessPolls = 0;
+              await sleep(10000);
+              continue;
+            }
 
-              if stable_success_polls >= 2:
-                  print(f"All PR checks passed: {', '.join(names)}")
-                  sys.exit(0)
+            const names = runs.map((run) => run.name);
 
-              print("Checks are complete; waiting for one more stable poll in case more checks appear.")
-              time.sleep(10)
+            if (JSON.stringify(names) === JSON.stringify(previousNames)) {
+              stableSuccessPolls += 1;
+            } else {
+              previousNames = names;
+              stableSuccessPolls = 1;
+            }
 
-          print("Timed out waiting for PR checks to complete.")
-          sys.exit(1)
-          PY
+            if (stableSuccessPolls >= 2) {
+              console.log(`All PR checks passed: ${names.join(', ')}`);
+              process.exit(0);
+            }
+
+            console.log(
+              'Checks are complete; waiting for one more stable poll in case more checks appear.',
+            );
+            await sleep(10000);
+          }
+
+          console.error('Timed out waiting for PR checks to complete.');
+          process.exit(1);
+          NODE
