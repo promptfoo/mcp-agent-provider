@@ -1,6 +1,5 @@
 import { faker } from '@faker-js/faker';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import {
   addCustomer,
   addOrder,
@@ -214,37 +213,58 @@ export const erpTools = [
   {
     name: 'create_product',
     description: 'Create a new product in the ERP system',
-    inputSchema: zodToJsonSchema(createProductSchema),
+    inputSchema: z.toJSONSchema(createProductSchema, {
+      target: 'draft-7',
+      io: 'input',
+    }),
   },
   {
     name: 'create_customer',
     description: 'Create a new customer account',
-    inputSchema: zodToJsonSchema(createCustomerSchema),
+    inputSchema: z.toJSONSchema(createCustomerSchema, {
+      target: 'draft-7',
+      io: 'input',
+    }),
   },
   {
     name: 'create_order',
     description: 'Create a new sales order',
-    inputSchema: zodToJsonSchema(createOrderSchema),
+    inputSchema: z.toJSONSchema(createOrderSchema, {
+      target: 'draft-7',
+      io: 'input',
+    }),
   },
   {
     name: 'update_inventory',
     description: 'Update inventory levels for a product',
-    inputSchema: zodToJsonSchema(updateInventorySchema),
+    inputSchema: z.toJSONSchema(updateInventorySchema, {
+      target: 'draft-7',
+      io: 'input',
+    }),
   },
   {
     name: 'query_inventory',
     description: 'Query current inventory status',
-    inputSchema: zodToJsonSchema(queryInventorySchema),
+    inputSchema: z.toJSONSchema(queryInventorySchema, {
+      target: 'draft-7',
+      io: 'input',
+    }),
   },
   {
     name: 'query_orders',
     description: 'Query sales orders with filters',
-    inputSchema: zodToJsonSchema(queryOrdersSchema),
+    inputSchema: z.toJSONSchema(queryOrdersSchema, {
+      target: 'draft-7',
+      io: 'input',
+    }),
   },
   {
     name: 'query_employees',
     description: 'Query employee information',
-    inputSchema: zodToJsonSchema(queryEmployeesSchema),
+    inputSchema: z.toJSONSchema(queryEmployeesSchema, {
+      target: 'draft-7',
+      io: 'input',
+    }),
   },
 ];
 
