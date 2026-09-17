@@ -232,6 +232,17 @@ Contributions are welcome! Please:
 4. Push to the branch
 5. Create a Pull Request
 
+### Local validation
+
+Run `npm ci`, `npm test`, and `npm run check` with a supported Node 20, 22,
+or 24 release. Faker requires Node 20.19+ or 22.13+ on those older lines.
+The test suite includes local stdio and HTTP MCP server smoke tests, including
+the SDK Express JSON middleware. These cover the
+Faker-backed ERP and analytics fixtures, generated identifiers and dates,
+tool argument schemas, and invalid inputs. It uses no API keys or external
+services. The fixture schemas use Zod's native JSON Schema conversion in
+input mode so fields with defaults remain optional for callers.
+
 ## License
 
 [Your License Here]
