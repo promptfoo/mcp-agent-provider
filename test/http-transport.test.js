@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { test } from 'node:test';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
@@ -91,3 +92,80 @@ for (const serverKind of ['HTTP adapter', 'SDK Express JSON middleware']) {
     assert.deepEqual(serverErrors, []);
   });
 }
+
+test('MCP client falls back to legacy SSE after a Streamable HTTP 4xx', {
+  timeout: 15_000,
+}, async (t) => {
+  const app = createMcpExpressApp();
+  const sessions = new Map();
+
+  app.get('/sse', async (_req, res) => {
+    const sdk = new Server(
+      { name: 'legacy-sse-fixture', version: '1.0.0' },
+      { capabilities: { tools: {} } },
+    );
+    sdk.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [
+        {
+          name: 'echo',
+          description: 'Return a local fixture message',
+          inputSchema: {
+            type: 'object',
+            properties: { text: { type: 'string' } },
+            required: ['text'],
+          },
+        },
+      ],
+    }));
+    sdk.setRequestHandler(CallToolRequestSchema, async ({ params }) => ({
+      content: [{ type: 'text', text: params.arguments.text }],
+    }));
+
+    const transport = new SSEServerTransport('/messages', res);
+    sessions.set(transport.sessionId, { sdk, transport });
+    res.on('close', () => {
+      sessions.delete(transport.sessionId);
+      void sdk.close();
+    });
+    await sdk.connect(transport);
+  });
+
+  app.post('/messages', async (req, res) => {
+    const sessionId = String(req.query.sessionId ?? '');
+    const session = sessions.get(sessionId);
+    if (!session) {
+      res.status(400).send('Unknown SSE session');
+      return;
+    }
+    await session.transport.handlePostMessage(req, res, req.body);
+  });
+
+  const http = createServer(app);
+  let client;
+  t.after(async () => {
+    await client?.client?.close();
+    await client?.transport?.close();
+    for (const { sdk, transport } of sessions.values()) {
+      await transport.close();
+      await sdk.close();
+    }
+    http.closeAllConnections();
+    await new Promise((resolve) => http.close(resolve));
+  });
+
+  http.listen(0, '127.0.0.1');
+  await once(http, 'listening');
+  const base = `http://127.0.0.1:${http.address().port}`;
+  client = new MCPClient({ url: `${base}/sse` });
+
+  assert.equal(await client.connect(), true);
+  assert.equal(client.isConnected, true);
+  assert.deepEqual(
+    (await client.listTools()).map((tool) => tool.name),
+    ['echo'],
+  );
+  assert.equal(
+    await client.callTool('echo', { text: 'legacy transport' }),
+    'legacy transport',
+  );
+});
