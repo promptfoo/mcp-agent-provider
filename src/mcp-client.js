@@ -32,8 +32,24 @@ class MCPClient {
       // Create appropriate transport based on config
       this.transport = await this.createTransport();
 
-      // Connect the client
-      await this.client.connect(this.transport);
+      try {
+        await this.client.connect(this.transport);
+      } catch (error) {
+        if (!this.config.url || !(await this.shouldFallbackToSse(error))) {
+          throw error;
+        }
+
+        if (this.config.debug) {
+          console.log(
+            'StreamableHTTP connection failed with a 4xx response, falling back to SSE',
+          );
+        }
+
+        await this.closeConnectionAttempt();
+        this.client = new Client(clientInfo, { capabilities });
+        this.transport = await this.createSseTransport();
+        await this.client.connect(this.transport);
+      }
 
       const serverName = this.getServerName();
       console.log(`Connected to MCP server: ${serverName}`);
@@ -136,49 +152,71 @@ class MCPClient {
     });
   }
 
-  async createHttpTransport() {
+  getHttpTransportOptions() {
     const headers = {
       ...(this.config.headers || {}),
       ...this.getAuthHeaders(),
     };
 
-    const options =
-      Object.keys(headers).length > 0
-        ? { requestInit: { headers } }
-        : undefined;
+    return Object.keys(headers).length > 0
+      ? { requestInit: { headers } }
+      : undefined;
+  }
 
-    const url = new URL(this.config.url);
+  async createHttpTransport() {
+    const { StreamableHTTPClientTransport } = await import(
+      '@modelcontextprotocol/sdk/client/streamableHttp.js'
+    );
+    const transport = new StreamableHTTPClientTransport(
+      new URL(this.config.url),
+      this.getHttpTransportOptions(),
+    );
+    if (this.config.debug) {
+      console.log('Using StreamableHTTP transport');
+    }
+    return transport;
+  }
 
-    // Try StreamableHTTP first, fall back to SSE if it fails
+  async createSseTransport() {
+    const { SSEClientTransport } = await import(
+      '@modelcontextprotocol/sdk/client/sse.js'
+    );
+    const transport = new SSEClientTransport(
+      new URL(this.config.url),
+      this.getHttpTransportOptions(),
+    );
+    if (this.config.debug) {
+      console.log('Using SSE transport');
+    }
+    return transport;
+  }
+
+  async shouldFallbackToSse(error) {
+    const { StreamableHTTPError } = await import(
+      '@modelcontextprotocol/sdk/client/streamableHttp.js'
+    );
+    return (
+      error instanceof StreamableHTTPError &&
+      typeof error.code === 'number' &&
+      error.code >= 400 &&
+      error.code < 500
+    );
+  }
+
+  async closeConnectionAttempt() {
     try {
-      const { StreamableHTTPClientTransport } = await import(
-        '@modelcontextprotocol/sdk/client/streamableHttp.js'
-      );
-      const transport = new StreamableHTTPClientTransport(url, options);
-      if (this.config.debug) {
-        console.log('Using StreamableHTTP transport');
+      if (this.client && typeof this.client.close === 'function') {
+        await this.client.close();
+      } else if (this.transport && typeof this.transport.close === 'function') {
+        await this.transport.close();
       }
-      return transport;
     } catch (error) {
       if (this.config.debug) {
-        console.log(
-          'StreamableHTTP failed, trying SSE transport:',
-          error.message,
-        );
+        console.log('Failed to close StreamableHTTP attempt:', error);
       }
-
-      try {
-        const { SSEClientTransport } = await import(
-          '@modelcontextprotocol/sdk/client/sse.js'
-        );
-        const transport = new SSEClientTransport(url, options);
-        if (this.config.debug) {
-          console.log('Using SSE transport');
-        }
-        return transport;
-      } catch (sseError) {
-        throw new Error(`Failed to create HTTP transport: ${sseError.message}`);
-      }
+    } finally {
+      this.client = null;
+      this.transport = null;
     }
   }
 
