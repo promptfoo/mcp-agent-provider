@@ -93,6 +93,14 @@ class ReactAgent {
     let iterations = 0;
     let finalResponse = null;
     const toolCalls = [];
+    const tokenUsage = {
+      prompt: 0,
+      completion: 0,
+      total: 0,
+      numRequests: 0,
+    };
+    let hasTokenUsage = false;
+    let tokenUsageComplete = true;
 
     while (iterations < this.maxIterations) {
       try {
@@ -104,6 +112,19 @@ class ReactAgent {
           temperature: 0.7,
           max_tokens: 2000,
         });
+
+        tokenUsage.numRequests += 1;
+        if (completion.usage) {
+          const promptTokens = completion.usage.prompt_tokens ?? 0;
+          const completionTokens = completion.usage.completion_tokens ?? 0;
+          tokenUsage.prompt += promptTokens;
+          tokenUsage.completion += completionTokens;
+          tokenUsage.total +=
+            completion.usage.total_tokens ?? promptTokens + completionTokens;
+          hasTokenUsage = true;
+        } else {
+          tokenUsageComplete = false;
+        }
 
         const message = completion.choices[0].message;
         messages.push(message);
@@ -141,6 +162,7 @@ class ReactAgent {
       toolCalls: toolCalls,
       iterations: iterations,
       messages: messages,
+      tokenUsage: hasTokenUsage && tokenUsageComplete ? tokenUsage : undefined,
     };
   }
 }

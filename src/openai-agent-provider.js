@@ -136,12 +136,6 @@ class OpenAIAgentProvider {
       const result = await this.agent.run(fullPrompt, context);
       const endTime = Date.now();
 
-      const tokenUsage = {
-        total: result.messages.length * 100,
-        prompt: Math.floor(result.messages.length * 60),
-        completion: Math.floor(result.messages.length * 40),
-      };
-
       return {
         output:
           result.response +
@@ -156,8 +150,7 @@ class OpenAIAgentProvider {
                 )}`,
             )
             .join('\n\n'),
-        tokenUsage: tokenUsage,
-        cost: tokenUsage.total * 0.00002,
+        tokenUsage: result.tokenUsage,
         cached: false,
         metadata: {
           iterations: result.iterations,
