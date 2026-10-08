@@ -98,6 +98,19 @@ test('MCP client falls back to legacy SSE after a Streamable HTTP 4xx', {
 }, async (t) => {
   const app = createMcpExpressApp();
   const sessions = new Map();
+  const authenticatedRequests = [];
+
+  app.use((req, res, next) => {
+    if (
+      req.headers.authorization !== 'Bearer local-fixture-token' ||
+      req.headers['x-fixture-header'] !== 'preserved'
+    ) {
+      res.status(401).send('Missing fixture authentication');
+      return;
+    }
+    authenticatedRequests.push(`${req.method} ${req.path}`);
+    next();
+  });
 
   app.get('/sse', async (_req, res) => {
     const sdk = new Server(
@@ -156,7 +169,11 @@ test('MCP client falls back to legacy SSE after a Streamable HTTP 4xx', {
   http.listen(0, '127.0.0.1');
   await once(http, 'listening');
   const base = `http://127.0.0.1:${http.address().port}`;
-  client = new MCPClient({ url: `${base}/sse` });
+  client = new MCPClient({
+    url: `${base}/sse`,
+    auth: { type: 'bearer', token: 'local-fixture-token' },
+    headers: { 'x-fixture-header': 'preserved' },
+  });
 
   assert.equal(await client.connect(), true);
   assert.equal(client.isConnected, true);
@@ -168,4 +185,32 @@ test('MCP client falls back to legacy SSE after a Streamable HTTP 4xx', {
     await client.callTool('echo', { text: 'legacy transport' }),
     'legacy transport',
   );
+  assert.ok(authenticatedRequests.includes('POST /sse'));
+  assert.ok(authenticatedRequests.includes('GET /sse'));
+  assert.ok(authenticatedRequests.includes('POST /messages'));
+});
+
+test('MCP client does not fall back to SSE for server errors', async (t) => {
+  const requests = [];
+  const http = createServer((req, res) => {
+    requests.push(req.method);
+    res.writeHead(500, { 'content-type': 'text/plain' });
+    res.end('fixture server unavailable');
+  });
+  let client;
+  t.after(async () => {
+    await client?.client?.close();
+    await client?.transport?.close();
+    http.closeAllConnections();
+    await new Promise((resolve) => http.close(resolve));
+  });
+  http.listen(0, '127.0.0.1');
+  await once(http, 'listening');
+  client = new MCPClient({
+    url: `http://127.0.0.1:${http.address().port}/mcp`,
+  });
+
+  await assert.rejects(client.connect(), /fixture server unavailable/);
+  assert.equal(client.isConnected, false);
+  assert.deepEqual(requests, ['POST']);
 });
