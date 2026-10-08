@@ -143,6 +143,81 @@ describe('ReactAgent', () => {
     });
     assert.strictEqual(result, 'Unknown tool: unknown_tool');
   });
+
+  test('aggregates OpenAI token usage across tool iterations', async () => {
+    const client = {
+      async listTools() {
+        return [
+          {
+            name: 'echo',
+            description: 'Echo input',
+            inputSchema: {
+              type: 'object',
+              properties: { text: { type: 'string' } },
+            },
+          },
+        ];
+      },
+      async callTool(_name, args) {
+        return args.text;
+      },
+    };
+    const agent = new ReactAgent('fake-api-key', 'https://api.openai.com/v1', [
+      client,
+    ]);
+    const completions = [
+      {
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_1',
+                  type: 'function',
+                  function: {
+                    name: 'mcp_0_echo',
+                    arguments: '{"text":"hello"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 2,
+          total_tokens: 12,
+        },
+      },
+      {
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'done',
+            },
+          },
+        ],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 3,
+          total_tokens: 8,
+        },
+      },
+    ];
+    agent.openai.chat.completions.create = async () => completions.shift();
+
+    const result = await agent.run('hello');
+
+    assert.deepStrictEqual(result.tokenUsage, {
+      prompt: 15,
+      completion: 5,
+      total: 20,
+      numRequests: 2,
+    });
+  });
 });
 
 describe('OpenAIAgentProvider', () => {
@@ -181,5 +256,38 @@ describe('OpenAIAgentProvider', () => {
     assert.strictEqual(provider.initializationState, 'not_initialized');
     assert.deepStrictEqual(provider.mcpClients, []);
     assert.strictEqual(provider.agent, null);
+  });
+
+  test('returns measured token usage without inventing cost', async () => {
+    const provider = new OpenAIAgentProvider({
+      config: { apiKey: 'test-key' },
+    });
+    provider.initialize = async () => {};
+    provider.agent = {
+      async run() {
+        return {
+          response: 'done',
+          toolCalls: [],
+          iterations: 0,
+          messages: [],
+          tokenUsage: {
+            prompt: 21,
+            completion: 8,
+            total: 29,
+            numRequests: 2,
+          },
+        };
+      },
+    };
+
+    const result = await provider.callApi('hello', { vars: {} });
+
+    assert.deepStrictEqual(result.tokenUsage, {
+      prompt: 21,
+      completion: 8,
+      total: 29,
+      numRequests: 2,
+    });
+    assert.strictEqual('cost' in result, false);
   });
 });
