@@ -210,11 +210,9 @@ plugins:
 ### Common Issues
 
 1. **"OpenAI API key is required" error**
-
    - Ensure `OPENAI_API_KEY` is set in your environment or `.env` file
 
 2. **"Failed to connect to MCP server" error**
-
    - Check that the MCP server command and path are correct
    - Ensure the MCP server is installed and executable
 
